@@ -23,7 +23,7 @@
 typedef enum State STATE;
 
 enum State {
-    START, 
+    START
 };
 
 int check_args(int argc, char * argv[]);
