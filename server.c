@@ -18,12 +18,38 @@
 
 #include "cpe464.h"
 
+#define DEBUG 1
+
 typedef enum State STATE;
 
 enum State {
     START, 
 };
+
+int check_args(int argc, char * argv[]);
+
 int main(int argc, char *argv[]) {
-    
+    int32_t server_sk_num = 0;
+    int port_num = 0;
+
+    port_num = check_args(argc, argv);
+    if(DEBUG) /*debug mode, no errors */
+	sendtoErr_init(atoi(argv[1]), DROP_OFF, FLIP_OFF, DEBUG_ON, RSEED_ON);
+    else
+	sendtoErr_init(atoi(argv[1]), DROP_ON, FLIP_ON, DEBUG_ON, RSEED_ON);
     return 0;
+}
+
+int check_args(int argc, char * argv[]){
+    int port_num;
+    
+    if (argc < 2 || argc >3) {
+	printf("Usage %s error_rate [port number]\n", argv[0]);
+	exit(EXIT_FAILURE);
+    }
+    else if (argc == 3)
+	port_num = atoi(argv[2]);
+    else
+	port_num = 0;
+    return port_num;
 }
