@@ -82,7 +82,7 @@ void run_client(int argc, char *argv[]) {
 	    
 	case DONE:
 	    close(fd);
-	    close(server->sk_num);
+	    close(server.sk_num);
 	    exit(EXIT_SUCCESS);
 	    break;
 	    
@@ -148,10 +148,11 @@ STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
     uint8_t packet[MAX_LEN];
     uint8_t buf[MAX_LEN];
     
-    if (select_call(server->sk_num, 0, 0, SET_NULL) == 1) {
+    if (select_call(server->sk_num, 0, 0, NOT_NULL) == 1) {
 	recv_len = recv_buf(buf, MAX_LEN, server->sk_num, server, &flag, &seq_num);
-	if (flag == FNAME_RES)
+	if (flag == FNAME_RES) {
 	    return SEND_DATA;
+	}
     }
     return DONE;
 }

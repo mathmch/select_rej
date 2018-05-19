@@ -22,14 +22,15 @@
 typedef enum State STATE;
 
 enum State {
-    START, CONNECTION, FILENAME, WAIT_DATA, DONE
+    START, CONNECTION, FILENAME, WAIT_DATA, GET_DATA, DONE
 };
 
 int check_args(int argc, char * argv[]);
 void process_server(int server_sk_num);
 void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Connection *client);
 STATE connection(Connection *client, uint8_t *buf);
-STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char *fname, uint8_t *buf);
+STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char *fname, uint8_t *buf, int *fd);
+STATE get_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_t *queue, uint8_t *buf, int *fd);
 
 int main(int argc, char *argv[]) {
     int32_t server_sk_num = 0;
@@ -83,9 +84,12 @@ void process_server(int server_sk_num) {
 void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Connection *client) {
     STATE state = START;
     uint8_t packet[MAX_LEN];
+    int fd;
     char *fname;
     int32_t buf_size;
     int32_t window_size;
+    int init = 0;
+    uint8_t *queue;
     while (state != DONE) {
 	switch (state) {
 	    case START:
@@ -97,20 +101,24 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
 		break;
 
  	    case FILENAME:
-		state = filename(client, &buf_size, &window_size, fname, buf);
+		state = filename(client, &buf_size, &window_size, fname, buf, &fd);
 		break;
 
 	    case WAIT_DATA:
-		printf("DATA");
-		//state = get_data();
+		if (init == 0) {
+		    queue = (uint8_t *)malloc(buf_size*window_size);
+		    init = 1;
+		}
+		state = get_data(client, buf_size, window_size, queue, buf, &fd);
 		break;
-		
+
+	    case DONE:
+		break;
+	    
 	    default:
 		printf("you shouldnt be here\n");
 		break;
 	    }
-
-
     }
 	
 }
@@ -127,7 +135,7 @@ STATE connection(Connection *client, uint8_t *buf) {
     return FILENAME;
 }
 
-STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char *fname, uint8_t *buf) {
+STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char *fname, uint8_t *buf, int *fd) {
     uint8_t response[MAX_LEN];
     int32_t recv_len;
     uint8_t flag = 0;
@@ -141,6 +149,7 @@ STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char
 		*window_size = ntohl(*((int32_t*)(buf + SIZE_OF_BUF_SIZE)));
 	        fname = buf+SIZE_OF_BUF_SIZE*2;
 		send_buf(NULL, 0, client, FNAME_RES, 0, response);
+	        *fd = open(fname, O_WRONLY, O_CREAT);
 		return WAIT_DATA;
 	    }
 	    else
@@ -155,3 +164,23 @@ STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char
     return FILENAME;
 }
 	
+STATE get_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_t *queue, uint8_t *buf, int *fd) {
+    int32_t recv_len;
+    uint8_t flag = 0;
+    uint32_t seq_num = 0;
+    uint8_t packet[MAX_LEN];
+    if(select_call(client->sk_num, LONG_TIME, 0, NOT_NULL) == 1) {
+	recv_len = recv_buf(buf, MAX_LEN, client->sk_num, client, &flag, &seq_num);
+	if (recv_len != CRC_ERROR) {
+	    if (flag == FNAME) {
+		send_buf(NULL, 0, client, FNAME_RES, 0, packet);
+		return WAIT_DATA;
+	    }
+	}
+	return WAIT_DATA;
+    }
+    printf("client appears to haver terminated");
+    close(*fd);
+    close(client->sk_num);
+    return DONE;
+}
