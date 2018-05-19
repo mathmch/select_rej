@@ -97,3 +97,24 @@ int retrieveHeader(char *data_buf, int recv_len, uint8_t *flag, int32_t *seq_num
     return return_val;
 }
 
+/* returns done if function exceeds max tries, timeout if select times out
+ * and data ready if there is data */
+int processSelect(Connection *connection, int timeout, int *retryCount, int selectTimeoutState, int dataReadyState, int doneState) {
+    int return_val = dataReadyState;
+
+    (*retryCount)++;
+    if (*retryCount > MAX_TRIES) {
+	printf("No response after %d times, other side likely disconnected\n", MAX_TRIES);
+	return_val = doneState;
+    }
+    else {
+	if(select_call(connection->sk_num, timeout, 0, NOT_NULL) == 1) {
+	    *retryCount = 0;
+	    return_val = dataReadyState;
+	}
+	else {
+	    return_val = selectTimeoutState;
+	}
+    }
+    return return_val;
+}

@@ -26,4 +26,5 @@ int32_t send_buf(uint8_t *buf, uint32_t len, Connection *connection, uint8_t fla
 int createHeader(uint32_t len, uint8_t flag, uint32_t seq_num, uint8_t *packet);
 int32_t recv_buf(uint8_t *buf, int32_t len, int32_t recv_sk_num, Connection *connection, uint8_t *flag, int32_t *seq_num);
 int retrieveHeader(char *data_buf, int recv_len, uint8_t *flag, int32_t *seq_num);
+int processSelect(Connection *connection, int timeout, int *retryCount, int selectTimeoutState, int dataReadyState, int doneState);
 #endif

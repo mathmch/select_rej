@@ -62,7 +62,7 @@ int32_t udp_client_setup(char *hostname, uint16_t port_num, Connection *connecti
     hp = gethostbyname(hostname);
 
     if (hp == NULL) {
-	printf("Host no found: %s\n", hostname);
+	printf("Host not found: %s\n", hostname);
 	return -1;
     }
 
