@@ -24,13 +24,8 @@ int32_t send_buf(uint8_t *buf, uint32_t len, Connection *connection, uint8_t fla
     int32_t sendingLen = 0;
 
     /* build the packet */
-    if (len > 0) {
-	if(memcpy(&packet[sizeof(Header)], buf, len) < 0) {
-	    perror("send buf");
-	    exit(EXIT_FAILURE);
-	}
-    }
-
+    if (len > 0) 
+	safe_memcpy(&packet[sizeof(Header)], buf, len, "send buf");
     sendingLen = createHeader(len, flag, seq_num, packet);
     sentLen = safeSend(packet, sendingLen, connection);
     return sentLen;
@@ -42,21 +37,14 @@ int createHeader(uint32_t len, uint8_t flag, uint32_t seq_num, uint8_t *packet) 
     uint16_t checksum = 0;
 
     seq_num = htonl(seq_num);
-    if (memcpy(&(aHeader->seq_num), &seq_num, sizeof(seq_num)) < 0) {
-	perror("create header");
-	exit(EXIT_FAILURE);
-    }
+    safe_memcpy(&(aHeader->seq_num), &seq_num, sizeof(seq_num), "create header");
     aHeader->flag = flag;
     if (memset(&(aHeader->checksum), 0, sizeof(checksum)) < 0) {
 	perror("create checksum");
 	exit(EXIT_FAILURE);
     }
     checksum = in_cksum((unsigned short*)packet, len + sizeof(Header));
-    if (memcpy(&(aHeader->checksum), &checksum, sizeof(checksum)) < 0) {
-	perror("write checksum");
-	exit(EXIT_FAILURE);
-    }
-
+    safe_memcpy(&(aHeader->checksum), &checksum, sizeof(checksum), "write checksum");
     return len + sizeof(Header);
 }
 
@@ -68,12 +56,9 @@ int32_t recv_buf(uint8_t *buf, int32_t len, int32_t recv_sk_num, Connection *con
     recv_len = safeRecv(recv_sk_num, data_buf, len, connection);
     data_len = retrieveHeader(data_buf, recv_len, flag, seq_num);
 
-    if (data_len > 0) {
-	if (memcpy(buf, &data_buf[sizeof(Header)], data_len) < 0) {
-	    perror("recv buf");
-	    exit(EXIT_FAILURE);
-	}
-    }
+    if (data_len > 0) 
+        safe_memcpy(buf, &data_buf[sizeof(Header)], data_len, "recv buf");
+    
 
     return data_len;
 }
@@ -87,10 +72,7 @@ int retrieveHeader(char *data_buf, int recv_len, uint8_t *flag, int32_t *seq_num
 	return_val = CRC_ERROR;
     else {
 	*flag = aHeader->flag;
-	if (memcpy(seq_num, &(aHeader->seq_num), sizeof(aHeader->seq_num)) < 0) {
-	    perror("retrieve header");
-	    exit(EXIT_FAILURE);
-	}
+        safe_memcpy(seq_num, &(aHeader->seq_num), sizeof(aHeader->seq_num), "retrieve header");
 	*seq_num = ntohl(*seq_num);
 	return_val = recv_len - sizeof(Header);
     }
@@ -117,4 +99,11 @@ int processSelect(Connection *connection, int timeout, int *retryCount, int sele
 	}
     }
     return return_val;
+}
+
+void safe_memcpy(void *dest, const void *src, size_t n, char *error) {
+    if(memcpy(dest, src, n) == NULL) {
+	perror(error);
+	exit(EXIT_FAILURE);
+    }
 }

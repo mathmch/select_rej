@@ -66,11 +66,8 @@ int32_t udp_client_setup(char *hostname, uint16_t port_num, Connection *connecti
 	return -1;
     }
 
-    if (memcpy(&(connection->remote.sin_addr), hp->h_addr, hp->h_length) < 0) {
-	perror("memcpy");
-	exit(EXIT_FAILURE);
-    }
-
+    safe_memcpy(&(connection->remote.sin_addr), hp->h_addr, hp->h_length, "client setup");
+       
     /* store port of remote */
     connection->remote.sin_port = htons(port_num);
 

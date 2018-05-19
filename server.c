@@ -18,28 +18,25 @@
 
 #include "cpe464.h"
 
-#define DEBUG 1
 
 typedef enum State STATE;
 
 enum State {
-    START
+    START, CONNECTION, FILENAME, WAIT_DATA, DONE
 };
 
 int check_args(int argc, char * argv[]);
 void process_server(int server_sk_num);
 void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Connection *client);
-
+STATE connection(Connection *client, uint8_t *buf);
+STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char *fname, uint8_t *buf);
 
 int main(int argc, char *argv[]) {
     int32_t server_sk_num = 0;
     int port_num = 0;
 
     port_num = check_args(argc, argv);
-    if(DEBUG) /*debug mode, no errors */
-	sendtoErr_init(atoi(argv[1]), DROP_OFF, FLIP_OFF, DEBUG_ON, RSEED_ON);
-    else
-	sendtoErr_init(atoi(argv[1]), DROP_ON, FLIP_ON, DEBUG_ON, RSEED_ON);
+    sendtoErr_init(atof(argv[1]), DROP_ON, FLIP_ON, DEBUG_ON, RSEED_ON);
 
     /* set up main server socket */
     server_sk_num = udp_server(port_num);
@@ -84,6 +81,77 @@ void process_server(int server_sk_num) {
 }
 
 void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Connection *client) {
-    printf("Somebody talked to me!\n");
+    STATE state = START;
+    uint8_t packet[MAX_LEN];
+    char *fname;
+    int32_t buf_size;
+    int32_t window_size;
+    while (state != DONE) {
+	switch (state) {
+	    case START:
+		state = CONNECTION;
+		break;
+		
+	    case CONNECTION:
+		state = connection(client, buf);
+		break;
 
+ 	    case FILENAME:
+		state = filename(client, &buf_size, &window_size, fname, buf);
+		break;
+
+	    case WAIT_DATA:
+		printf("DATA");
+		//state = get_data();
+		break;
+		
+	    default:
+		printf("you shouldnt be here\n");
+		break;
+	    }
+
+
+    }
+	
 }
+
+STATE connection(Connection *client, uint8_t *buf) {
+    uint8_t response[MAX_LEN];
+    
+    /* create client socket  for responding */
+    if ((client->sk_num = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+	perror("client socket");
+	exit(EXIT_FAILURE);
+    }
+    send_buf(NULL, 0, client, SETUP_RES, 0, response);
+    return FILENAME;
+}
+
+STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char *fname, uint8_t *buf) {
+    uint8_t response[MAX_LEN];
+    int32_t recv_len;
+    uint8_t flag = 0;
+    uint32_t seq_num = 0;
+    
+    if (select_call(client->sk_num, LONG_TIME, 0, NOT_NULL) == 1) {
+	recv_len = recv_buf(buf, MAX_LEN, client->sk_num, client, &flag, &seq_num);
+	if (recv_len != CRC_ERROR) {
+	    if (flag == FNAME) {
+		*buf_size = ntohl(*((int32_t*)buf));
+		*window_size = ntohl(*((int32_t*)(buf + SIZE_OF_BUF_SIZE)));
+	        fname = buf+SIZE_OF_BUF_SIZE*2;
+		send_buf(NULL, 0, client, FNAME_RES, 0, response);
+		return WAIT_DATA;
+	    }
+	    else
+		return CONNECTION;
+	}
+    }
+    else {
+	printf("Client appears to have disconnected\n");
+	close(client->sk_num);
+        return DONE;
+    }
+    return FILENAME;
+}
+	

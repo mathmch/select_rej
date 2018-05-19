@@ -4,6 +4,7 @@
 #include "networks.h"
 
 #define MAX_LEN 1500
+#define SIZE_OF_BUF_SIZE 4
 #define MAX_TRIES 10
 #define LONG_TIME 10
 #define SHORT_TIME 1
@@ -28,3 +29,5 @@ int32_t recv_buf(uint8_t *buf, int32_t len, int32_t recv_sk_num, Connection *con
 int retrieveHeader(char *data_buf, int recv_len, uint8_t *flag, int32_t *seq_num);
 int processSelect(Connection *connection, int timeout, int *retryCount, int selectTimeoutState, int dataReadyState, int doneState);
 #endif
+
+void safe_memcpy(void *dest, const void *src, size_t n, char *error);
