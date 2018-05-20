@@ -126,6 +126,8 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
 		break;
 
 	    case DONE:
+		if (init == 1)
+		    free(queue);
 		break;
 	    
 	    default:
@@ -178,6 +180,7 @@ STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char
 }
 	
 STATE wait_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej) {
+    static int closed = 1;
     uint8_t packet[MAX_LEN];
     int32_t recv_len;
     uint8_t flag = 0;
@@ -190,13 +193,18 @@ STATE wait_data(Connection *client, int32_t buf_size, int32_t window_size, uint8
 		return WAIT_DATA;
 	    }
 	    if (flag == DATA) {
-	        return get_data(client, recv_len, seq_num, queue, buf, fd, srej);
+		return get_data(client, recv_len, seq_num, queue, buf, fd, srej);
 	    }
 	    else if (flag == EoF) {
-		;	//handle EoF
+		if (closed)
+		    close(*fd);
+		closed = 0;
+		send_buf(NULL, 0, client, EoF, 0, packet);
+		return WAIT_DATA;
 	    }
-	    else if (flag == TERMINATE) {
-		;	//handle TERMINATE
+	    else if (flag == TERMINATE) { /* client has shutdown */
+		close(client->sk_num);
+		return DONE;
 	    }
 	    
 	}

@@ -23,7 +23,7 @@
 typedef enum State STATE;
 
 enum State {
-    START, CONNECTION, FILENAME, GET_DATA, SEND_DATA, DONE
+    START, CONNECTION, FILENAME, GET_DATA, SEND_DATA, WINDOW, DONE
 };
 
 typedef struct window Window;
@@ -43,6 +43,8 @@ STATE connection_setup(Connection *server);
 STATE filename(char *fname, int32_t buf_size, int32_t window_size, Connection *server);
 STATE get_data(uint8_t *queue, Window *window, Connection *server);
 STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server);
+STATE window_status(uint8_t *queue, Window *window, Connection *server);
+
 
 int main(int argc, char *argv[]) {
 
@@ -87,11 +89,15 @@ void run_client(int argc, char *argv[]) {
 	case SEND_DATA:
 	    state = send_data(fd, queue, &window, &server);
 	    break;
+
+	case WINDOW:
+	    state = window_status(queue, &window, &server);
+	    break;
 	    
 	case DONE:
+	    free(queue);
 	    close(fd);
 	    close(server.sk_num);
-	    exit(EXIT_SUCCESS);
 	    break;
 	    
 	default:
@@ -153,8 +159,11 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server) {
     int32_t recv_len;
     uint8_t flag;
     uint32_t seq_num;
+    uint32_t rr;
+    uint32_t srej;
     uint8_t packet[MAX_LEN];
     uint8_t buf[MAX_LEN];
+    uint8_t *buf_ptr;
     
     if (select_call(server->sk_num, 0, 0, NOT_NULL) == 1) {
 	recv_len = recv_buf(buf, MAX_LEN, server->sk_num, server, &flag, &seq_num);
@@ -163,31 +172,62 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server) {
 		return SEND_DATA;
 	    }
 	    else if (flag == RR) {
-		;	//handle RR
+		rr = ntohl(*(int32_t *)buf);
+		window->upper = window->upper + (rr - window->lower);
+		window->lower = rr;
+		return GET_DATA;
 	    }
 	    else if (flag == SREJ) {
-		;	//handle SREJ
+		srej = ntohl(*(int32_t *)buf);
+		buf_ptr = get_element(queue, srej%window->size, window->buf_size);
+		send_buf(buf_ptr, MAX_LEN, server, DATA, srej, packet); /* this may not be MAX_LEN size */
+		return GET_DATA;
 	    }
-	    else if(flag == EoF) {
-		;	//handle EoF
+	    else if(flag == EoF) { /* tell there server you are terminating */
+	        send_buf(NULL, 0, server, TERMINATE, 0, packet);
+		return DONE;
 	    }
 	}
+	else
+	    GET_DATA;
     }
-    else
-	return SEND_DATA;
-    return DONE;
+    return WINDOW;
 }
 
 STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
-    static int32_t sending_seq = 1;
     int len;
-    uint8_t packet[MAX_LEN+HEADER];
+    uint8_t packet[MAX_LEN];
     uint8_t buf[MAX_LEN];
     
-    len = read(fd, buf, MAX_LEN);
-    add_element(queue, sending_seq%window->size, window->buf_size, buf, len);
-    send_buf(buf, len, server, DATA, sending_seq++, packet);
+    len = read(fd, buf, MAX_LEN-HEADER);
+    if (len == 0){ /* EOF */
+	send_buf(NULL, 0, server, EoF, window->current++, packet);
+	return GET_DATA;
+    }
+    add_element(queue, window->current%window->size, window->buf_size, buf, len);
+    send_buf(buf, len, server, DATA, window->current++, packet);
     return GET_DATA;
+}
+
+STATE window_status(uint8_t *queue, Window *window, Connection *server) {
+    uint8_t *buf_ptr;
+    static int retryCount = 0;
+    uint8_t packet[MAX_LEN];
+    if (window->current > window->upper) {
+        if (select_call(server->sk_num, SHORT_TIME, 0, NOT_NULL) == 1) {
+	    retryCount = 0;
+	    return GET_DATA;
+	}
+	else /* window has been closed for 1 sec, send lowest unRRed packet */
+	    {
+		retryCount++;
+		buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
+		send_buf(buf_ptr, MAX_LEN, server, DATA, window->lower, packet);
+		return WINDOW;
+	    }
+    }
+    else 
+	return SEND_DATA;
 }
 
 void check_args(int argc, char *argv[]) {
