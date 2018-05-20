@@ -15,6 +15,7 @@
 
 #include "networks.h"
 #include "srej.h"
+#include "queue.h"
 
 #include "cpe464.h"
 
@@ -25,12 +26,20 @@ enum State {
     START, CONNECTION, FILENAME, WAIT_DATA, GET_DATA, DONE
 };
 
+typedef struct srej Srej;
+
+struct srej {
+    int32_t *rejects;
+    int total;
+};
+
 int check_args(int argc, char * argv[]);
 void process_server(int server_sk_num);
 void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Connection *client);
 STATE connection(Connection *client, uint8_t *buf);
 STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char *fname, uint8_t *buf, int *fd);
-STATE get_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_t *queue, uint8_t *buf, int *fd);
+STATE wait_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej);
+STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej);
 
 int main(int argc, char *argv[]) {
     int32_t server_sk_num = 0;
@@ -90,6 +99,8 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
     int32_t window_size;
     int init = 0;
     uint8_t *queue;
+    Srej srej;
+    
     while (state != DONE) {
 	switch (state) {
 	    case START:
@@ -107,9 +118,11 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
 	    case WAIT_DATA:
 		if (init == 0) {
 		    queue = (uint8_t *)malloc(buf_size*window_size);
+		    srej.rejects = (int32_t *)malloc(window_size*sizeof(int32_t));
+		    srej.total = 0;
 		    init = 1;
 		}
-		state = get_data(client, buf_size, window_size, queue, buf, &fd);
+		state = wait_data(client, buf_size, window_size, queue, buf, &fd, &srej);
 		break;
 
 	    case DONE:
@@ -164,11 +177,11 @@ STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char
     return FILENAME;
 }
 	
-STATE get_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_t *queue, uint8_t *buf, int *fd) {
+STATE wait_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej) {
+    uint8_t packet[MAX_LEN];
     int32_t recv_len;
     uint8_t flag = 0;
     uint32_t seq_num = 0;
-    uint8_t packet[MAX_LEN];
     if(select_call(client->sk_num, LONG_TIME, 0, NOT_NULL) == 1) {
 	recv_len = recv_buf(buf, MAX_LEN, client->sk_num, client, &flag, &seq_num);
 	if (recv_len != CRC_ERROR) {
@@ -176,6 +189,16 @@ STATE get_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_
 		send_buf(NULL, 0, client, FNAME_RES, 0, packet);
 		return WAIT_DATA;
 	    }
+	    if (flag == DATA) {
+	        return get_data(client, recv_len, seq_num, queue, buf, fd, srej);
+	    }
+	    else if (flag == EoF) {
+		;	//handle EoF
+	    }
+	    else if (flag == TERMINATE) {
+		;	//handle TERMINATE
+	    }
+	    
 	}
 	return WAIT_DATA;
     }
@@ -183,4 +206,39 @@ STATE get_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_
     close(*fd);
     close(client->sk_num);
     return DONE;
+}
+
+STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej) {
+    static uint32_t expected_seq = 1;
+    static uint32_t sending_seq = 1;
+    uint32_t temp_seq;
+    uint8_t packet[MAX_LEN];
+    /* write to file then send RR 
+     * unless there are outstanding SREJs*/
+    if(recv_seq_num == expected_seq) { 
+	if (srej->total == 0) {
+	    write(*fd, buf, recv_len);
+	    expected_seq++;
+	    temp_seq = htonl(expected_seq);
+	    safe_memcpy(buf, &temp_seq, SIZE_OF_BUF_SIZE, "write seq to RR");
+	    send_buf(buf, SIZE_OF_BUF_SIZE, client, RR, sending_seq++, packet);
+	    return WAIT_DATA;
+	}
+	else //handle outstanding rejects.
+	    return WAIT_DATA;
+    }
+    /* recieve a dupe packet
+     * discard and send highest RR */
+    else if(recv_seq_num < expected_seq) {
+	temp_seq = htonl(expected_seq);
+	safe_memcpy(buf, &temp_seq, SIZE_OF_BUF_SIZE, "write seq to RR");
+	send_buf(buf, SIZE_OF_BUF_SIZE, client, RR, sending_seq++, packet);
+	return WAIT_DATA;
+    }
+    /* recieved out of order packet
+     * buffer and send SREJ */
+    else if(recv_seq_num > expected_seq) {
+	;
+    }
+
 }

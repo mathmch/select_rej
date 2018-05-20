@@ -15,6 +15,7 @@
 
 #include "networks.h"
 #include "srej.h"
+#include "queue.h"
 
 #include "cpe464.h"
 
@@ -22,7 +23,7 @@
 typedef enum State STATE;
 
 enum State {
-    START, CONNECTION, FILENAME, SEND_DATA, DONE
+    START, CONNECTION, FILENAME, GET_DATA, SEND_DATA, DONE
 };
 
 typedef struct window Window;
@@ -39,6 +40,7 @@ void run_client(int argc, char *argv[]);
 STATE start_state(char *argv[], Connection *server);
 STATE connection_setup(Connection *server);
 STATE filename(char *fname, int32_t buf_size, int32_t window_size, Connection *server);
+STATE get_data(uint8_t *queue, Window *window, Connection *server);
 STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server);
 
 int main(int argc, char *argv[]) {
@@ -74,6 +76,10 @@ void run_client(int argc, char *argv[]) {
 
 	case FILENAME:
 	    state = filename(argv[2], buf_size, window_size, &server);
+	    break;
+
+	case GET_DATA:
+	    state = get_data(queue, &window, &server);
 	    break;
 
 	case SEND_DATA:
@@ -138,10 +144,10 @@ STATE filename(char *fname, int32_t buf_size, int32_t window_size, Connection *s
     else if (recv_len == CRC_ERROR)
 	     return START;
 
-    return processSelect(server, SHORT_TIME, &retryCount, FILENAME, SEND_DATA, DONE);    
+    return processSelect(server, SHORT_TIME, &retryCount, FILENAME, GET_DATA, DONE);    
 }
 
-STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
+STATE get_data(uint8_t *queue, Window *window, Connection *server) {
     int32_t recv_len;
     uint8_t flag;
     uint32_t seq_num;
@@ -150,11 +156,26 @@ STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
     
     if (select_call(server->sk_num, 0, 0, NOT_NULL) == 1) {
 	recv_len = recv_buf(buf, MAX_LEN, server->sk_num, server, &flag, &seq_num);
-	if (flag == FNAME_RES) {
-	    return SEND_DATA;
+	if(recv_len != CRC_ERROR) {
+	    if (flag == FNAME_RES) {
+		return SEND_DATA;
+	    }
+	    else if (flag == RR) {
+		;	//handle RR
+	    }
+	    else if (flag == SREJ) {
+		;	//handle SREJ
+	    }
+	    else if(flag == EoF) {
+		;	//handle EoF
+	    }
 	}
     }
     return DONE;
+}
+
+STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
+
 }
 
 void check_args(int argc, char *argv[]) {
