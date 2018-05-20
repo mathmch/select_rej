@@ -19,6 +19,13 @@ uint8_t *init_queue(int32_t buf_size, int32_t window_size) {
     return queue;
 }
 
+void add_element(uint8_t *queue, int index, int32_t buf_size, uint8_t *buf, int len) {
+    int i;
+    for (i = 0; i < len; i++) {
+	queue[index*buf_size + i] = buf[i];
+    }
+
+}
 uint8_t *get_element(uint8_t *queue, int index, int32_t buf_size) {
     return queue + index * buf_size;
 }

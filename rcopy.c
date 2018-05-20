@@ -30,6 +30,7 @@ typedef struct window Window;
 
 struct window {
     int buf_size;
+    int size;
     int lower;
     int current;
     int upper;
@@ -55,10 +56,11 @@ void run_client(int argc, char *argv[]) {
     Connection server;
     Window window;
     STATE state = START;
-    int fd = open(argv[2], O_RDONLY);
+    int fd = open(argv[1], O_RDONLY);
     int32_t window_size = atoi(argv[3]);
     int32_t buf_size = atoi(argv[4]);
-    uint8_t *queue = (uint8_t*)malloc(window_size*buf_size);
+    uint8_t *queue = init_queue(buf_size, window_size);
+    window.size = window_size;
     window.lower = 1;
     window.current = 1;
     window.upper = window_size;
@@ -171,11 +173,21 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server) {
 	    }
 	}
     }
+    else
+	return SEND_DATA;
     return DONE;
 }
 
 STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
-
+    static int32_t sending_seq = 1;
+    int len;
+    uint8_t packet[MAX_LEN+HEADER];
+    uint8_t buf[MAX_LEN];
+    
+    len = read(fd, buf, MAX_LEN);
+    add_element(queue, sending_seq%window->size, window->buf_size, buf, len);
+    send_buf(buf, len, server, DATA, sending_seq++, packet);
+    return GET_DATA;
 }
 
 void check_args(int argc, char *argv[]) {

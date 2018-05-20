@@ -117,7 +117,7 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
 
 	    case WAIT_DATA:
 		if (init == 0) {
-		    queue = (uint8_t *)malloc(buf_size*window_size);
+		    queue = init_queue(buf_size, window_size);
 		    srej.rejects = (int32_t *)malloc(window_size*sizeof(int32_t));
 		    srej.total = 0;
 		    init = 1;
@@ -162,7 +162,7 @@ STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char
 		*window_size = ntohl(*((int32_t*)(buf + SIZE_OF_BUF_SIZE)));
 	        fname = buf+SIZE_OF_BUF_SIZE*2;
 		send_buf(NULL, 0, client, FNAME_RES, 0, response);
-	        *fd = open(fname, O_WRONLY, O_CREAT);
+	        *fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 		return WAIT_DATA;
 	    }
 	    else
@@ -216,7 +216,7 @@ STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint
     /* write to file then send RR 
      * unless there are outstanding SREJs*/
     if(recv_seq_num == expected_seq) { 
-	if (srej->total == 0) {
+	if (srej->total == 0) { /* no outstanding SREJs */
 	    write(*fd, buf, recv_len);
 	    expected_seq++;
 	    temp_seq = htonl(expected_seq);
@@ -228,7 +228,7 @@ STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint
 	    return WAIT_DATA;
     }
     /* recieve a dupe packet
-     * discard and send highest RR */
+     * discard and send highest RR possible*/
     else if(recv_seq_num < expected_seq) {
 	temp_seq = htonl(expected_seq);
 	safe_memcpy(buf, &temp_seq, SIZE_OF_BUF_SIZE, "write seq to RR");

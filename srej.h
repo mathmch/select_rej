@@ -4,6 +4,7 @@
 #include "networks.h"
 
 #define MAX_LEN 1500
+#define HEADER 7
 #define SIZE_OF_BUF_SIZE 4
 #define MAX_TRIES 10
 #define LONG_TIME 10
