@@ -178,7 +178,7 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server) {
 	    }
 	    else if (flag == RR) {
 		rr = ntohl(*(int32_t *)buf);
-		if (window->end && rr == window->current) /* at eof */
+		if (window->end == rr) /* at eof */
 		    return END;
 		window->upper = window->upper + (rr - window->lower);
 		window->lower = rr;
@@ -191,7 +191,7 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server) {
 		return GET_DATA;
 	    }
 	    else if(flag == EoF) { /* tell there server you are terminating */
-	        send_buf(NULL, 0, server, TERMINATE, 0, packet);
+	        send_buf(NULL, 0, server, TERMINATE, window->current, packet);
 		return DONE;
 	    }
 	}
@@ -208,7 +208,8 @@ STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
     
     len = read(fd, buf, window->buf_size-HEADER);
     if (len == 0){ /* EOF, need to ensure final RR is recieved */
-	window->end = 1; /* file transfer complete */
+	window->end = window->current; /* file transfer complete */
+	printf("\n-------------------%d------------------------\n", window->end);
 	//send_buf(NULL, 0, server, EoF, window->current++, packet);
 	return GET_DATA;
     }
@@ -226,12 +227,7 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 	printf("No response from server\n");
 	return DONE;
     }
-    if (window->end) { /* at eof */
-	send_buf(NULL, 0, server, EoF, window->current, packet);
-	retryCount++;
-	return GET_DATA;
-    }
-    else if (window->current > window->upper) {
+    if (window->current > window->upper) {
         if (select_call(server->sk_num, SHORT_TIME, 0, NOT_NULL) == 1) {
 	    retryCount = 0;
 	    return GET_DATA;
@@ -241,12 +237,22 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 		retryCount++;
 		buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
 		send_buf(buf_ptr, window->buf_size-HEADER, server, DATA, window->lower, packet);
-		return GET_DATA;
+		return WINDOW;
 	    }
+    }
+    else if (window->end) { /* at eof */
+	if (select_call(server->sk_num, SHORT_TIME, 0, NOT_NULL) == 1) {
+	    retryCount = 0;
+	    return GET_DATA;
+	}
+	else {
+	    retryCount++;
+	    return WINDOW;
+	}
     }
     else 
 	return SEND_DATA;
-}
+    }
 
 void check_args(int argc, char *argv[]) {
     if (argc != 8) {

@@ -259,7 +259,8 @@ STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint
 	    add_element(queue, recv_seq_num%window_size, buf_size, buf, recv_len);
 	    /* if the packet isnt already SREJ'ed */
 	    for(i = 0; i < recv_seq_num - expected_seq; i++) { /* sends SREJs */
-		if (srej->rejects[(expected_seq+i)%window_size] != expected_seq+i) {
+		if (srej->rejects[(expected_seq+i)%window_size] != expected_seq+i &&
+		    get_element(queue, (expected_seq+i)%window_size, buf_size) == NULL) {
 		    srej->rejects[(expected_seq+i)%window_size] = expected_seq+i;
 		    srej->total++;
 		    temp_seq = htonl(expected_seq + i);
