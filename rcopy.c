@@ -23,13 +23,14 @@
 typedef enum State STATE;
 
 enum State {
-    START, CONNECTION, FILENAME, GET_DATA, SEND_DATA, WINDOW, DONE
+    START, CONNECTION, FILENAME, GET_DATA, SEND_DATA, WINDOW, END, DONE
 };
 
 typedef struct window Window;
 
 struct window {
     int buf_size;
+    int end;
     int size;
     int lower;
     int current;
@@ -63,6 +64,7 @@ void run_client(int argc, char *argv[]) {
     int32_t buf_size = atoi(argv[4]);
     uint8_t *queue = init_queue(buf_size, window_size);
     window.size = window_size;
+    window.end = 0;
     window.lower = 1;
     window.current = 1;
     window.upper = window_size;
@@ -92,6 +94,10 @@ void run_client(int argc, char *argv[]) {
 
 	case WINDOW:
 	    state = window_status(queue, &window, &server);
+	    break;
+	    
+	case END:
+	    state = DONE;
 	    break;
 	    
 	case DONE:
@@ -172,6 +178,8 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server) {
 	    }
 	    else if (flag == RR) {
 		rr = ntohl(*(int32_t *)buf);
+		if (window->end && rr == window->current) /* at eof */
+		    return END;
 		window->upper = window->upper + (rr - window->lower);
 		window->lower = rr;
 		return GET_DATA;
@@ -200,7 +208,8 @@ STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
     
     len = read(fd, buf, window->buf_size-HEADER);
     if (len == 0){ /* EOF, need to ensure final RR is recieved */
-	send_buf(NULL, 0, server, EoF, window->current++, packet);
+	window->end = 1; /* file transfer complete */
+	//send_buf(NULL, 0, server, EoF, window->current++, packet);
 	return GET_DATA;
     }
     remove_element(queue, window->current%window->size, window->buf_size);
@@ -217,7 +226,12 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 	printf("No response from server\n");
 	return DONE;
     }
-    if (window->current > window->upper) {
+    if (window->end) { /* at eof */
+	send_buf(NULL, 0, server, EoF, window->current, packet);
+	retryCount++;
+	return GET_DATA;
+    }
+    else if (window->current > window->upper) {
         if (select_call(server->sk_num, SHORT_TIME, 0, NOT_NULL) == 1) {
 	    retryCount = 0;
 	    return GET_DATA;
@@ -227,7 +241,7 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 		retryCount++;
 		buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
 		send_buf(buf_ptr, window->buf_size-HEADER, server, DATA, window->lower, packet);
-		return WINDOW;
+		return GET_DATA;
 	    }
     }
     else 
