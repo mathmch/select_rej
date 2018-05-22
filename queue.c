@@ -27,7 +27,12 @@ void add_element(uint8_t *queue, int index, int32_t buf_size, uint8_t *buf, int 
 
 }
 uint8_t *get_element(uint8_t *queue, int index, int32_t buf_size) {
-    return queue + index * buf_size;
+    int i;
+    for (i = 0; i < buf_size; i++) {
+	if (*(queue + index * buf_size + i) != 0)
+	    return queue + index * buf_size; /* if any val isn't 0 */
+    }
+    return NULL;
 }
 
 void remove_element(uint8_t *queue, int index, int32_t buf_size) {

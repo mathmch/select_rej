@@ -39,7 +39,8 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
 STATE connection(Connection *client, uint8_t *buf);
 STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char *fname, uint8_t *buf, int *fd);
 STATE wait_data(Connection *client, int32_t buf_size, int32_t window_size, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej);
-STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej);
+STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej, int32_t window_size, int32_t buf_size);
+void handle_srej(Connection *client, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej, int32_t window_size, int32_t buf_size, uint32_t *expected_seq, uint32_t *sending_seq);
 
 int main(int argc, char *argv[]) {
     int32_t server_sk_num = 0;
@@ -98,6 +99,7 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
     int32_t buf_size;
     int32_t window_size;
     int init = 0;
+    int i;
     uint8_t *queue;
     Srej srej;
     
@@ -119,6 +121,8 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
 		if (init == 0) {
 		    queue = init_queue(buf_size, window_size);
 		    srej.rejects = (int32_t *)malloc(window_size*sizeof(int32_t));
+		    for (i = 0; i < window_size; i++)
+			srej.rejects[i]=0;
 		    srej.total = 0;
 		    init = 1;
 		}
@@ -126,8 +130,6 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
 		break;
 
 	    case DONE:
-		if (init == 1)
-		    free(queue);
 		break;
 	    
 	    default:
@@ -135,6 +137,9 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
 		break;
 	    }
     }
+    if (init == 1)
+	free(queue);
+    exit(EXIT_SUCCESS);
 	
 }
 
@@ -193,7 +198,7 @@ STATE wait_data(Connection *client, int32_t buf_size, int32_t window_size, uint8
 		return WAIT_DATA;
 	    }
 	    if (flag == DATA) {
-		return get_data(client, recv_len, seq_num, queue, buf, fd, srej);
+		return get_data(client, recv_len, seq_num, queue, buf, fd, srej, window_size, buf_size);
 	    }
 	    else if (flag == EoF) {
 		if (closed)
@@ -216,24 +221,27 @@ STATE wait_data(Connection *client, int32_t buf_size, int32_t window_size, uint8
     return DONE;
 }
 
-STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej) {
+STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej, int32_t window_size, int32_t buf_size) {
     static uint32_t expected_seq = 1;
     static uint32_t sending_seq = 1;
+    int i;
     uint32_t temp_seq;
     uint8_t packet[MAX_LEN];
     /* write to file then send RR 
      * unless there are outstanding SREJs*/
     if(recv_seq_num == expected_seq) { 
-	if (srej->total == 0) { /* no outstanding SREJs */
-	    write(*fd, buf, recv_len);
-	    expected_seq++;
+	write(*fd, buf, recv_len);
+	expected_seq++;
+	if (srej->total == 0) { /* no outstanding SREJs, send RR */
 	    temp_seq = htonl(expected_seq);
 	    safe_memcpy(buf, &temp_seq, SIZE_OF_BUF_SIZE, "write seq to RR");
 	    send_buf(buf, SIZE_OF_BUF_SIZE, client, RR, sending_seq++, packet);
 	    return WAIT_DATA;
 	}
-	else //handle outstanding rejects.
+	else {/* there are SREJs, see if buffer can be cleared */
+	    handle_srej(client, queue, buf, fd, srej, window_size, buf_size, &expected_seq, &sending_seq);
 	    return WAIT_DATA;
+	}
     }
     /* recieve a dupe packet
      * discard and send highest RR possible*/
@@ -246,7 +254,41 @@ STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint
     /* recieved out of order packet
      * buffer and send SREJ */
     else if(recv_seq_num > expected_seq) {
-	;
+	 /* if the packet isnt already buffered */
+	if (get_element(queue, recv_seq_num%window_size, buf_size) == NULL) {
+	    add_element(queue, recv_seq_num%window_size, buf_size, buf, recv_len);
+	    /* if the packet isnt already SREJ'ed */
+	    for(i = 0; i < recv_seq_num - expected_seq; i++) { /* sends SREJs */
+		if (srej->rejects[(expected_seq+i)%window_size] != expected_seq+i) {
+		    srej->rejects[(expected_seq+i)%window_size] = expected_seq+i;
+		    srej->total++;
+		    temp_seq = htonl(expected_seq + i);
+		    safe_memcpy(buf, &temp_seq, SIZE_OF_BUF_SIZE, "write seq to SREJ");
+		    send_buf(buf, SIZE_OF_BUF_SIZE, client, SREJ, sending_seq++, packet);
+		}
+	    }
+	}
+	return WAIT_DATA;
     }
 
+}
+
+void handle_srej(Connection *client, uint8_t *queue, uint8_t *buf, int *fd, Srej *srej, int32_t window_size, int32_t buf_size, uint32_t *expected_seq, uint32_t *sending_seq) {
+    uint32_t temp_seq;
+    uint8_t packet[MAX_LEN];
+    uint8_t *buf_ptr;
+    srej->total--;
+    srej->rejects[(*expected_seq-1)%window_size] = 0;
+    /* clear as much of the buffer as possible */
+    while((buf_ptr = (uint8_t *)get_element(queue, *expected_seq%window_size, buf_size)) != NULL) {
+	write(*fd, buf_ptr, strlen(buf)); /*might not be strlen */
+	remove_element(queue, *expected_seq%window_size, buf_size);
+	(*expected_seq)++;
+	srej->total--;
+	srej->rejects[(*expected_seq-1)%window_size] = 0;
+    }
+    /* send RR for next unrecieved packet */
+    temp_seq = htonl(*expected_seq);
+    safe_memcpy(buf, &temp_seq, SIZE_OF_BUF_SIZE, "write seq to RR");
+    send_buf(buf, SIZE_OF_BUF_SIZE, client, RR, (*sending_seq)++, packet);
 }

@@ -95,9 +95,6 @@ void run_client(int argc, char *argv[]) {
 	    break;
 	    
 	case DONE:
-	    free(queue);
-	    close(fd);
-	    close(server.sk_num);
 	    break;
 	    
 	default:
@@ -106,6 +103,8 @@ void run_client(int argc, char *argv[]) {
 	}
 	    
     }
+    close(fd);
+    close(server.sk_num);
 }
 
 STATE start_state(char *argv[], Connection *server) {
@@ -180,7 +179,7 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server) {
 	    else if (flag == SREJ) {
 		srej = ntohl(*(int32_t *)buf);
 		buf_ptr = get_element(queue, srej%window->size, window->buf_size);
-		send_buf(buf_ptr, MAX_LEN, server, DATA, srej, packet); /* this may not be MAX_LEN size */
+		send_buf(buf_ptr, window->buf_size-HEADER, server, DATA, srej, packet); /* this may not be MAX_LEN size */
 		return GET_DATA;
 	    }
 	    else if(flag == EoF) { /* tell there server you are terminating */
@@ -199,11 +198,12 @@ STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
     uint8_t packet[MAX_LEN];
     uint8_t buf[MAX_LEN];
     
-    len = read(fd, buf, MAX_LEN-HEADER);
-    if (len == 0){ /* EOF */
+    len = read(fd, buf, window->buf_size-HEADER);
+    if (len == 0){ /* EOF, need to ensure final RR is recieved */
 	send_buf(NULL, 0, server, EoF, window->current++, packet);
 	return GET_DATA;
     }
+    remove_element(queue, window->current%window->size, window->buf_size);
     add_element(queue, window->current%window->size, window->buf_size, buf, len);
     send_buf(buf, len, server, DATA, window->current++, packet);
     return GET_DATA;
@@ -213,6 +213,10 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
     uint8_t *buf_ptr;
     static int retryCount = 0;
     uint8_t packet[MAX_LEN];
+    if (retryCount == 10) {
+	printf("No response from server\n");
+	return DONE;
+    }
     if (window->current > window->upper) {
         if (select_call(server->sk_num, SHORT_TIME, 0, NOT_NULL) == 1) {
 	    retryCount = 0;
@@ -222,7 +226,7 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 	    {
 		retryCount++;
 		buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
-		send_buf(buf_ptr, MAX_LEN, server, DATA, window->lower, packet);
+		send_buf(buf_ptr, window->buf_size-HEADER, server, DATA, window->lower, packet);
 		return WINDOW;
 	    }
     }
