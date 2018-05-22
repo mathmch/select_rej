@@ -19,7 +19,7 @@
 
 #include "cpe464.h"
 
-
+/*TODO: refine, figure out why diffs are different */
 typedef enum State STATE;
 
 enum State {
@@ -188,7 +188,7 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server) {
 	    else if (flag == SREJ) {
 		srej = ntohl(*(int32_t *)buf);
 		buf_ptr = get_element(queue, srej%window->size, window->buf_size);
-		send_buf(buf_ptr, window->buf_size-HEADER, server, DATA, srej, packet); /* this may not be MAX_LEN size */
+		send_buf(buf_ptr, strlen(buf_ptr), server, DATA, srej, packet); /* this may not be MAX_LEN size */
 		return GET_DATA;
 	    }
 	    else if(flag == EoF) { /* tell there server you are terminating */
@@ -235,7 +235,7 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 	    {
 		retryCount++;
 		buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
-		send_buf(buf_ptr, window->buf_size-HEADER, server, DATA, window->lower, packet);
+		send_buf(buf_ptr, strlen(buf_ptr), server, DATA, window->lower, packet);
 		return WINDOW;
 	    }
     }
@@ -247,7 +247,7 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 	else {
 	    retryCount++;
 	    buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
-	    send_buf(buf_ptr, window->buf_size-HEADER, server, DATA, window->lower, packet);
+	    send_buf(buf_ptr, strlen(buf_ptr), server, DATA, window->lower, packet);
 	    return WINDOW;
 	}
     }

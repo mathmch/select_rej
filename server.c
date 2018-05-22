@@ -282,7 +282,7 @@ void handle_srej(Connection *client, uint8_t *queue, uint8_t *buf, int *fd, Srej
     srej->rejects[(*expected_seq-1)%window_size] = 0;
     /* clear as much of the buffer as possible */
     while((buf_ptr = (uint8_t *)get_element(queue, *expected_seq%window_size, buf_size)) != NULL) {
-	write(*fd, buf_ptr, strlen(buf)); /*might not be strlen */
+	write(*fd, buf_ptr, strlen(buf_ptr)); /*might not be strlen */
 	remove_element(queue, *expected_seq%window_size, buf_size);
 	(*expected_seq)++;
 	srej->total--;
