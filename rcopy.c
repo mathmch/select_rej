@@ -45,6 +45,7 @@ STATE filename(char *fname, int32_t buf_size, int32_t window_size, Connection *s
 STATE get_data(uint8_t *queue, Window *window, Connection *server);
 STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server);
 STATE window_status(uint8_t *queue, Window *window, Connection *server);
+STATE terminate(Window *window, Connection *server);
 
 
 int main(int argc, char *argv[]) {
@@ -97,7 +98,7 @@ void run_client(int argc, char *argv[]) {
 	    break;
 	    
 	case END:
-	    state = DONE;
+	    state = terminate(&window, &server);
 	    break;
 	    
 	case DONE:
@@ -209,8 +210,6 @@ STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
     len = read(fd, buf, window->buf_size-HEADER);
     if (len == 0){ /* EOF, need to ensure final RR is recieved */
 	window->end = window->current; /* file transfer complete */
-	printf("\n-------------------%d------------------------\n", window->end);
-	//send_buf(NULL, 0, server, EoF, window->current++, packet);
 	return GET_DATA;
     }
     remove_element(queue, window->current%window->size, window->buf_size);
@@ -247,12 +246,20 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 	}
 	else {
 	    retryCount++;
+	    buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
+	    send_buf(buf_ptr, window->buf_size-HEADER, server, DATA, window->lower, packet);
 	    return WINDOW;
 	}
     }
     else 
 	return SEND_DATA;
     }
+
+STATE terminate(Window *window, Connection *server) {
+    uint8_t packet[MAX_LEN];
+    send_buf(NULL, 0, server, TERMINATE, window->current, packet);
+    return DONE;
+}
 
 void check_args(int argc, char *argv[]) {
     if (argc != 8) {
