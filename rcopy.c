@@ -178,13 +178,15 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server, char *fname) 
 		return SEND_DATA;
 	    }
 	    if (flag == FOPEN_ERR) {
-		printf("Error during file open of %s on server\n");
+		printf("Error during file open of %s on server\n", fname);
 		return DONE;
 	    }
 	    else if (flag == RR) {
 		rr = ntohl(*(int32_t *)buf);
-		if (window->end == rr) /* at eof */
-		    return END;
+		if (window->end == rr) { /* at eof */
+		    window->end = -1; /*indicate RR is up to date */
+		    return WINDOW;
+		}
 		window->upper = window->upper + (rr - window->lower);
 		window->lower = rr;
 		return GET_DATA;
@@ -248,7 +250,12 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 	    retryCount = 0;
 	    return GET_DATA;
 	}
-	else {
+	else if(window->end == -1) { /* last RR recieved */
+	    retryCount++;
+	    send_buf(NULL, 0, server, EoF, window->current++, packet);
+	    return WINDOW;
+	}
+	else { /* outstanding RRs */
 	    retryCount++;
 	    buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
 	    send_buf(buf_ptr, strlen(buf_ptr), server, DATA, window->lower, packet);
