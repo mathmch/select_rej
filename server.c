@@ -131,7 +131,7 @@ void process_client(int32_t server_sk_num, uint8_t *buf, int32_t recv_len, Conne
 
 	    case WAIT_DATA:
 		if (init == 0) {
-		    queue = init_queue(buf_size, window_size);
+		    queue = init_queue(buf_size+1, window_size);
 		    srej.rejects = (int32_t *)malloc(window_size*sizeof(int32_t));
 		    for (i = 0; i < window_size; i++)
 			srej.rejects[i]=0;
@@ -273,8 +273,8 @@ STATE get_data(Connection *client, int32_t recv_len, uint32_t recv_seq_num, uint
      * buffer and send SREJ */
     else if(recv_seq_num > expected_seq) {
 	 /* if the packet isnt already buffered */
-	if (get_element(queue, recv_seq_num%window_size, buf_size) == NULL) {
-	    add_element(queue, recv_seq_num%window_size, buf_size, buf, recv_len);
+	if (get_element(queue, recv_seq_num%window_size, buf_size+1) == NULL) {
+	    add_element(queue, recv_seq_num%window_size, buf_size+1, buf, recv_len);
 	    /* if the packet isnt already SREJ'ed */
 	    for(i = 0; i < recv_seq_num - expected_seq; i++) { /* sends SREJs */
 		if (srej->rejects[(expected_seq+i)%window_size] != expected_seq+i &&
@@ -299,9 +299,9 @@ void handle_srej(Connection *client, uint8_t *queue, uint8_t *buf, int *fd, Srej
     srej->total--;
     srej->rejects[(*expected_seq-1)%window_size] = 0;
     /* clear as much of the buffer as possible */
-    while((buf_ptr = (uint8_t *)get_element(queue, *expected_seq%window_size, buf_size)) != NULL) {
+    while((buf_ptr = (uint8_t *)get_element(queue, *expected_seq%window_size, buf_size+1)) != NULL) {
 	write(*fd, buf_ptr, strlen(buf_ptr)); /*might not be strlen */
-	remove_element(queue, *expected_seq%window_size, buf_size);
+	remove_element(queue, *expected_seq%window_size, buf_size+1);
 	(*expected_seq)++;
 	srej->total--;
 	srej->rejects[(*expected_seq-1)%window_size] = 0;

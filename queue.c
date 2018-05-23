@@ -15,7 +15,7 @@
 
 
 uint8_t *init_queue(int32_t buf_size, int32_t window_size) {
-    uint8_t *queue = (uint8_t *)malloc(buf_size*window_size);
+    uint8_t *queue = (uint8_t *)calloc(buf_size*window_size, 1);
     return queue;
 }
 

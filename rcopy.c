@@ -63,7 +63,7 @@ void run_client(int argc, char *argv[]) {
     int fd = open(argv[1], O_RDONLY);
     int32_t window_size = atoi(argv[3]);
     int32_t buf_size = atoi(argv[4]);
-    uint8_t *queue = init_queue(buf_size, window_size);
+    uint8_t *queue = init_queue(buf_size+1, window_size);
     window.size = window_size;
     window.end = 0;
     window.lower = 1;
@@ -88,7 +88,6 @@ void run_client(int argc, char *argv[]) {
 	case GET_DATA:
 	    state = get_data(queue, &window, &server, argv[2]);
 	    break;
-
 	case SEND_DATA:
 	    state = send_data(fd, queue, &window, &server);
 	    break;
@@ -193,7 +192,7 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server, char *fname) 
 	    }
 	    else if (flag == SREJ) {
 		srej = ntohl(*(int32_t *)buf);
-		buf_ptr = get_element(queue, srej%window->size, window->buf_size);
+		buf_ptr = get_element(queue, srej%window->size, window->buf_size+1);
 		send_buf(buf_ptr, strlen(buf_ptr), server, DATA, srej, packet); /* this may not be MAX_LEN size */
 		return GET_DATA;
 	    }
@@ -213,13 +212,13 @@ STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server) {
     uint8_t packet[MAX_LEN];
     uint8_t buf[MAX_LEN];
     
-    len = read(fd, buf, window->buf_size-HEADER);
+    len = read(fd, buf, window->buf_size);
     if (len == 0){ /* EOF, need to ensure final RR is recieved */
 	window->end = window->current; /* file transfer complete */
 	return GET_DATA;
     }
-    remove_element(queue, window->current%window->size, window->buf_size);
-    add_element(queue, window->current%window->size, window->buf_size, buf, len);
+    remove_element(queue, window->current%window->size, window->buf_size+1);
+    add_element(queue, window->current%window->size, window->buf_size+1, buf, len);
     send_buf(buf, len, server, DATA, window->current++, packet);
     return GET_DATA;
 }
@@ -240,7 +239,7 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 	else /* window has been closed for 1 sec, send lowest unRRed packet */
 	    {
 		retryCount++;
-		buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
+		buf_ptr = get_element(queue, window->lower%window->size, window->buf_size+1);
 		send_buf(buf_ptr, strlen(buf_ptr), server, DATA, window->lower, packet);
 		return WINDOW;
 	    }
@@ -257,7 +256,7 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
 	}
 	else { /* outstanding RRs */
 	    retryCount++;
-	    buf_ptr = get_element(queue, window->lower%window->size, window->buf_size);
+	    buf_ptr = get_element(queue, window->lower%window->size, window->buf_size+1);
 	    send_buf(buf_ptr, strlen(buf_ptr), server, DATA, window->lower, packet);
 	    return WINDOW;
 	}
