@@ -1,0 +1,8 @@
+Mathew McHugh
+Lab: Noon
+Extra Flags
+-9: EoF flag, tells the server that the transfer is complete and is also used by the server to acknowledge that
+    it has closed the file
+
+-10 Terminate flag, it is sent by the client to inform the server it is terminating. Sever terminates if it recieves
+    the flag.
