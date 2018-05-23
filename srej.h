@@ -21,7 +21,7 @@ struct header {
 };
 
 enum FLAG {
-    SETUP = 1, SETUP_RES, DATA, RR = 5, SREJ, FNAME, FNAME_RES, EoF, TERMINATE, CRC_ERROR = -1
+    SETUP = 1, SETUP_RES, DATA, RR = 5, SREJ, FNAME, FNAME_RES, EoF, TERMINATE, FOPEN_ERR, CRC_ERROR = -1
 };
 
 int32_t send_buf(uint8_t *buf, uint32_t len, Connection *connection, uint8_t flag, uint32_t seq_num, uint8_t *packet);

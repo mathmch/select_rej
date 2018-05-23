@@ -19,6 +19,7 @@
 
 #include "cpe464.h"
 
+#define SINGLE 0
 
 typedef enum State STATE;
 
@@ -84,8 +85,19 @@ void process_server(int server_sk_num) {
 	if (select_call(server_sk_num, LONG_TIME, 0, NOT_NULL) == 1) {
 	    recv_len = recv_buf(buf, MAX_LEN, server_sk_num, &client, &flag, &seq_num);
 	    if (recv_len != CRC_ERROR) {
-		process_client(server_sk_num, buf, recv_len, &client);
+		if (!SINGLE) {
+		    if ((pid = fork()) < 0) {
+			perror("fork");
+			exit(EXIT_FAILURE);
+		    }
+		    if (pid == 0)
+			process_client(server_sk_num, buf, recv_len, &client);
+		}
+		else
+		    process_client(server_sk_num, buf, recv_len, &client);		    
 	    }
+
+	    while (waitpid(-1, &status, WNOHANG) > 0) {}
 	}
     }
     
@@ -160,16 +172,23 @@ STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char
     int32_t recv_len;
     uint8_t flag = 0;
     uint32_t seq_num = 0;
+    int init = 0;
     
     if (select_call(client->sk_num, LONG_TIME, 0, NOT_NULL) == 1) {
 	recv_len = recv_buf(buf, MAX_LEN, client->sk_num, client, &flag, &seq_num);
 	if (recv_len != CRC_ERROR) {
 	    if (flag == FNAME) {
+		
 		*buf_size = ntohl(*((int32_t*)buf));
 		*window_size = ntohl(*((int32_t*)(buf + SIZE_OF_BUF_SIZE)));
 	        fname = buf+SIZE_OF_BUF_SIZE*2;
+		/* if file open fails, send error */
+		if ((*fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0 || init) {
+		    send_buf(NULL, 0, client, FOPEN_ERR, 0, response);
+		    init = 1;
+		    return WAIT_DATA;
+		}
 		send_buf(NULL, 0, client, FNAME_RES, 0, response);
-	        *fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 		return WAIT_DATA;
 	    }
 	    else
@@ -177,7 +196,6 @@ STATE filename(Connection *client, int32_t *buf_size, int32_t *window_size, char
 	}
     }
     else {
-	printf("Client appears to have disconnected\n");
 	close(client->sk_num);
         return DONE;
     }

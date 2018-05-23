@@ -42,7 +42,7 @@ void run_client(int argc, char *argv[]);
 STATE start_state(char *argv[], Connection *server);
 STATE connection_setup(Connection *server);
 STATE filename(char *fname, int32_t buf_size, int32_t window_size, Connection *server);
-STATE get_data(uint8_t *queue, Window *window, Connection *server);
+STATE get_data(uint8_t *queue, Window *window, Connection *server, char *fname);
 STATE send_data(int fd, uint8_t *queue, Window *window, Connection *server);
 STATE window_status(uint8_t *queue, Window *window, Connection *server);
 STATE terminate(Window *window, Connection *server);
@@ -86,7 +86,7 @@ void run_client(int argc, char *argv[]) {
 	    break;
 
 	case GET_DATA:
-	    state = get_data(queue, &window, &server);
+	    state = get_data(queue, &window, &server, argv[2]);
 	    break;
 
 	case SEND_DATA:
@@ -161,7 +161,7 @@ STATE filename(char *fname, int32_t buf_size, int32_t window_size, Connection *s
     return processSelect(server, SHORT_TIME, &retryCount, FILENAME, GET_DATA, DONE);    
 }
 
-STATE get_data(uint8_t *queue, Window *window, Connection *server) {
+STATE get_data(uint8_t *queue, Window *window, Connection *server, char *fname) {
     int32_t recv_len;
     uint8_t flag;
     uint32_t seq_num;
@@ -176,6 +176,10 @@ STATE get_data(uint8_t *queue, Window *window, Connection *server) {
 	if(recv_len != CRC_ERROR) {
 	    if (flag == FNAME_RES) {
 		return SEND_DATA;
+	    }
+	    if (flag == FOPEN_ERR) {
+		printf("Error during file open of %s on server\n");
+		return DONE;
 	    }
 	    else if (flag == RR) {
 		rr = ntohl(*(int32_t *)buf);
@@ -222,14 +226,14 @@ STATE window_status(uint8_t *queue, Window *window, Connection *server) {
     uint8_t *buf_ptr;
     static int retryCount = 0;
     uint8_t packet[MAX_LEN];
-    if (retryCount == 10) {
-	printf("No response from server\n");
-	return DONE;
-    }
     if (window->current > window->upper) {
         if (select_call(server->sk_num, SHORT_TIME, 0, NOT_NULL) == 1) {
 	    retryCount = 0;
 	    return GET_DATA;
+	}
+	else if (retryCount == 10) { /* window closed and 10 failed attempts */
+	    printf("No response from server\n");
+	    return DONE;
 	}
 	else /* window has been closed for 1 sec, send lowest unRRed packet */
 	    {
