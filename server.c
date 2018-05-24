@@ -233,7 +233,7 @@ STATE wait_data(Connection *client, int32_t buf_size, int32_t window_size, uint8
 	}
 	return WAIT_DATA;
     }
-    printf("client appears to haver terminated");
+    printf("client appears to haver terminated\n");
     close(*fd);
     close(client->sk_num);
     return DONE;

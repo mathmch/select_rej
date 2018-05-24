@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
+#include "cpe464.h"
 
 uint8_t *init_queue(int32_t buf_size, int32_t window_size) {
     uint8_t *queue = (uint8_t *)calloc(buf_size*window_size, 1);

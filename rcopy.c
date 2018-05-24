@@ -285,7 +285,7 @@ void check_args(int argc, char *argv[]) {
 	exit(EXIT_FAILURE);
     }
     if (atoi(argv[4]) > MAX_LEN) {
-	printf("Buffer size must be less than %d and is: %d\n", MAX_LEN, atoi(argv[4]));
+	printf("Buffer size must be less than %d and is: %d\n", MAX_LEN-100, atoi(argv[4]));
 	exit(EXIT_FAILURE);
     }
     if (atoi(argv[5]) < 0 || atoi(argv[5]) > 1) {
